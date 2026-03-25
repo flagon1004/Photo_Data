@@ -660,6 +660,219 @@ if uploaded_files:
         </div>
         """, unsafe_allow_html=True)
 
+    # ─── CAD 도면 위치 표시 (LSP 생성) ───
+    if all_data:
+        gps_data_lsp = [d for d in all_data if '위도' in d and '경도' in d and d['위도'] and d['경도']]
+
+        if gps_data_lsp:
+            st.markdown('<div class="section-title">📐 CAD 도면 위치 표시 (LSP 생성)</div>', unsafe_allow_html=True)
+
+            st.markdown("""
+            <div class="info-box">
+                📌 GPS 좌표가 있는 사진들의 촬영 위치를 CAD 도면에 표시할 수 있는 LSP(리습) 파일을 생성합니다.<br>
+                다운로드한 LSP 파일을 CAD에서 <strong>APPLOAD</strong>로 로드 → <strong>PHOTOMARK</strong> 명령어로 실행하세요.
+            </div>
+            """, unsafe_allow_html=True)
+
+            # CAD 프로그램 선택
+            col_cad1, col_cad2 = st.columns(2)
+            with col_cad1:
+                cad_program = st.selectbox("CAD 프로그램", ["ZWCAD", "AutoCAD"], index=0)
+            with col_cad2:
+                coord_method = st.selectbox("좌표 변환 방식", ["방법 A: GPS 좌표 그대로", "방법 B: 기준점 2개로 변환"], index=0)
+
+            # 방법 B: 기준점 입력
+            ref_a_gps_lat, ref_a_gps_lon = None, None
+            ref_a_cad_x, ref_a_cad_y = None, None
+            ref_b_gps_lat, ref_b_gps_lon = None, None
+            ref_b_cad_x, ref_b_cad_y = None, None
+
+            if "방법 B" in coord_method:
+                st.markdown("#### 기준점 A")
+                col_a1, col_a2, col_a3, col_a4 = st.columns(4)
+                with col_a1:
+                    ref_a_gps_lat = st.number_input("A - GPS 위도", value=0.0, format="%.6f", key="a_lat")
+                with col_a2:
+                    ref_a_gps_lon = st.number_input("A - GPS 경도", value=0.0, format="%.6f", key="a_lon")
+                with col_a3:
+                    ref_a_cad_x = st.number_input("A - CAD X", value=0.0, format="%.2f", key="a_x")
+                with col_a4:
+                    ref_a_cad_y = st.number_input("A - CAD Y", value=0.0, format="%.2f", key="a_y")
+
+                st.markdown("#### 기준점 B")
+                col_b1, col_b2, col_b3, col_b4 = st.columns(4)
+                with col_b1:
+                    ref_b_gps_lat = st.number_input("B - GPS 위도", value=0.0, format="%.6f", key="b_lat")
+                with col_b2:
+                    ref_b_gps_lon = st.number_input("B - GPS 경도", value=0.0, format="%.6f", key="b_lon")
+                with col_b3:
+                    ref_b_cad_x = st.number_input("B - CAD X", value=0.0, format="%.2f", key="b_x")
+                with col_b4:
+                    ref_b_cad_y = st.number_input("B - CAD Y", value=0.0, format="%.2f", key="b_y")
+
+            # LSP 옵션
+            st.markdown("#### LSP 옵션")
+            col_opt1, col_opt2, col_opt3 = st.columns(3)
+            with col_opt1:
+                marker_size = st.number_input("마커 크기", value=5.0, min_value=0.5, max_value=100.0, step=0.5, format="%.1f")
+            with col_opt2:
+                text_height = st.number_input("텍스트 높이", value=2.5, min_value=0.5, max_value=50.0, step=0.5, format="%.1f")
+            with col_opt3:
+                layer_name = st.text_input("레이어명", value="PHOTO_LOCATION")
+
+            col_color1, col_color2 = st.columns(2)
+            with col_color1:
+                marker_color = st.selectbox("마커 색상", [
+                    "1 - 빨강", "2 - 노랑", "3 - 초록", "4 - 시안",
+                    "5 - 파랑", "6 - 마젠타", "7 - 흰색/검정"
+                ], index=0)
+            with col_color2:
+                text_color = st.selectbox("텍스트 색상", [
+                    "1 - 빨강", "2 - 노랑", "3 - 초록", "4 - 시안",
+                    "5 - 파랑", "6 - 마젠타", "7 - 흰색/검정"
+                ], index=6)
+
+            marker_color_num = marker_color.split(" - ")[0]
+            text_color_num = text_color.split(" - ")[0]
+
+            # ─── LSP 파일 생성 ───
+            def generate_lsp(gps_photos, method, cad_prog,
+                             m_size, t_height, l_name, m_color, t_color,
+                             ra_glat=None, ra_glon=None, ra_cx=None, ra_cy=None,
+                             rb_glat=None, rb_glon=None, rb_cx=None, rb_cy=None):
+                """LSP 파일 내용 생성"""
+
+                lines = []
+                lines.append(f"; ─── 사진 촬영 위치 표시 LSP ───")
+                lines.append(f"; 생성일: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                lines.append(f"; CAD 프로그램: {cad_prog}")
+                lines.append(f"; 좌표 변환: {'방법 B (기준점 2개 변환)' if method == 'B' else '방법 A (GPS 좌표 그대로)'}")
+                lines.append(f"; 사진 수: {len(gps_photos)}장")
+                lines.append(f";")
+
+                if method == "B" and ra_glat and ra_glon and rb_glat and rb_glon:
+                    lines.append(f"; 기준점 A: GPS({ra_glat}, {ra_glon}) → CAD({ra_cx}, {ra_cy})")
+                    lines.append(f"; 기준점 B: GPS({rb_glat}, {rb_glon}) → CAD({rb_cx}, {rb_cy})")
+                    lines.append(f";")
+
+                lines.append(f"(defun C:PHOTOMARK ()")
+                lines.append(f"  (setq old_osmode (getvar \"OSMODE\"))")
+                lines.append(f"  (setvar \"OSMODE\" 0)")
+                lines.append(f"  (setq old_clayer (getvar \"CLAYER\"))")
+                lines.append(f"")
+                lines.append(f"  ; 레이어 생성")
+                lines.append(f"  (command \"LAYER\" \"M\" \"{l_name}\" \"C\" \"{m_color}\" \"\" \"\")")
+                lines.append(f"")
+
+                # 좌표 변환 및 포인트 생성
+                for d in gps_photos:
+                    lat = d['위도']
+                    lon = d['경도']
+                    fname = d['파일명']
+
+                    if method == "B" and ra_glat and ra_glon and rb_glat and rb_glon:
+                        # 방법 B: 기준점 변환
+                        dlon_gps = rb_glon - ra_glon
+                        dlat_gps = rb_glat - ra_glat
+                        dx_cad = rb_cx - ra_cx
+                        dy_cad = rb_cy - ra_cy
+
+                        if abs(dlon_gps) > 1e-10 and abs(dlat_gps) > 1e-10:
+                            scale_x = dx_cad / dlon_gps
+                            scale_y = dy_cad / dlat_gps
+                            cad_x = ra_cx + (lon - ra_glon) * scale_x
+                            cad_y = ra_cy + (lat - ra_glat) * scale_y
+                        else:
+                            cad_x = lon
+                            cad_y = lat
+                    else:
+                        # 방법 A: GPS 좌표 그대로 (경도=X, 위도=Y)
+                        cad_x = lon
+                        cad_y = lat
+
+                    half = m_size / 2
+                    lines.append(f"  ; ── {fname} ──")
+                    lines.append(f"  ; GPS: {lat}, {lon}")
+                    lines.append(f"  (command \"LAYER\" \"S\" \"{l_name}\" \"\")")
+                    lines.append(f"")
+                    # 십자 마커 (가로선)
+                    lines.append(f"  (command \"LINE\"")
+                    lines.append(f"    (list {cad_x - half:.4f} {cad_y:.4f})")
+                    lines.append(f"    (list {cad_x + half:.4f} {cad_y:.4f})")
+                    lines.append(f"    \"\")")
+                    # 십자 마커 (세로선)
+                    lines.append(f"  (command \"LINE\"")
+                    lines.append(f"    (list {cad_x:.4f} {cad_y - half:.4f})")
+                    lines.append(f"    (list {cad_x:.4f} {cad_y + half:.4f})")
+                    lines.append(f"    \"\")")
+                    # 마커 색상 변경
+                    lines.append(f"  (command \"CHPROP\" (entlast) \"\" \"C\" \"{m_color}\" \"\")")
+                    lines.append(f"  (command \"CHPROP\" (ssget \"P\") \"\" \"C\" \"{m_color}\" \"\")")
+                    lines.append(f"")
+                    # 파일명 텍스트
+                    lines.append(f"  (command \"TEXT\"")
+                    lines.append(f"    (list {cad_x + half + 1:.4f} {cad_y + half * 0.5:.4f})")
+                    lines.append(f"    \"{t_height}\" \"0\" \"{fname}\")")
+                    lines.append(f"  (command \"CHPROP\" (entlast) \"\" \"C\" \"{t_color}\" \"\")")
+                    lines.append(f"")
+
+                lines.append(f"  ; 원래 설정 복원")
+                lines.append(f"  (setvar \"OSMODE\" old_osmode)")
+                lines.append(f"  (setvar \"CLAYER\" old_clayer)")
+                lines.append(f"  (princ (strcat \"\\n사진 위치 표시 완료! ({len(gps_photos)}장)\"))")
+                lines.append(f"  (princ)")
+                lines.append(f")")
+                lines.append(f"")
+                lines.append(f"(princ \"\\nPHOTOMARK 명령어를 입력하세요.\")")
+                lines.append(f"(princ)")
+
+                return "\n".join(lines)
+
+            # 유효성 검사 및 LSP 생성
+            can_generate = True
+            if "방법 B" in coord_method:
+                if (ref_a_gps_lat == 0 and ref_a_gps_lon == 0) or (ref_b_gps_lat == 0 and ref_b_gps_lon == 0):
+                    can_generate = False
+                if (ref_a_cad_x == 0 and ref_a_cad_y == 0) or (ref_b_cad_x == 0 and ref_b_cad_y == 0):
+                    can_generate = False
+
+            if can_generate:
+                method = "B" if "방법 B" in coord_method else "A"
+                lsp_content = generate_lsp(
+                    gps_data_lsp, method, cad_program,
+                    marker_size, text_height, layer_name,
+                    marker_color_num, text_color_num,
+                    ref_a_gps_lat, ref_a_gps_lon, ref_a_cad_x, ref_a_cad_y,
+                    ref_b_gps_lat, ref_b_gps_lon, ref_b_cad_x, ref_b_cad_y
+                )
+
+                today_lsp = datetime.now().strftime("%Y-%m-%d")
+                st.markdown("<div style='height: 0.5rem'></div>", unsafe_allow_html=True)
+                st.download_button(
+                    label="📐 LSP 파일 다운로드",
+                    data=lsp_content.encode('utf-8'),
+                    file_name=f"photomark_{today_lsp}.lsp",
+                    mime="text/plain",
+                    key="lsp_download"
+                )
+
+                # 사용법 안내
+                st.markdown(f"""
+                <div class="info-box">
+                    <strong>CAD에서 실행 방법:</strong><br>
+                    1. {cad_program}에서 도면 열기<br>
+                    2. 명령창에 <strong>APPLOAD</strong> 입력 → 다운로드한 LSP 파일 선택 → 로드<br>
+                    3. 명령창에 <strong>PHOTOMARK</strong> 입력 → Enter<br>
+                    4. <strong>{layer_name}</strong> 레이어에 마커 + 파일명이 자동 표시됨
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div class="warning-box">
+                    ⚠️ 방법 B를 사용하려면 기준점 A, B의 GPS 좌표와 CAD 좌표를 모두 입력해주세요.
+                </div>
+                """, unsafe_allow_html=True)
+
 else:
     st.markdown("""
     <div class="info-box">
