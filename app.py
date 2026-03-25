@@ -679,7 +679,21 @@ if uploaded_files:
             with col_cad1:
                 cad_program = st.selectbox("CAD 프로그램", ["ZWCAD", "AutoCAD"], index=0)
             with col_cad2:
-                coord_method = st.selectbox("좌표 변환 방식", ["방법 A: GPS 좌표 그대로", "방법 B: 기준점 2개로 변환"], index=0)
+                coord_method = st.selectbox("좌표 변환 방식", [
+                    "방법 A: GPS → TM좌표 자동변환 (권장)",
+                    "방법 B: 기준점 2개로 변환",
+                    "방법 A-원본: GPS 좌표 그대로"
+                ], index=0)
+
+            # 방법 A: TM 자동변환 안내
+            if "자동변환" in coord_method:
+                st.markdown("""
+                <div class="info-box">
+                    📌 <strong>GPS → TM좌표 자동변환 (중부원점, EPSG:5186)</strong><br>
+                    한국 건설·측량 도면에서 사용하는 평면직각좌표계로 자동 변환합니다.<br>
+                    도면 좌표가 X=17만, Y=54만 대인 경우 이 방법을 사용하세요.
+                </div>
+                """, unsafe_allow_html=True)
 
             # 방법 B: 기준점 입력
             ref_a_gps_lat, ref_a_gps_lon = None, None
@@ -735,6 +749,67 @@ if uploaded_files:
             marker_color_num = marker_color.split(" - ")[0]
             text_color_num = text_color.split(" - ")[0]
 
+            # ─── GPS → TM좌표 변환 함수 (중부원점 EPSG:5186) ───
+            import math
+
+            def gps_to_tm(lat, lon):
+                """WGS84 위경도 → TM 중부원점 (EPSG:5186) 변환"""
+                # GRS80 타원체 파라미터
+                a = 6378137.0
+                f = 1 / 298.257222101
+                b = a * (1 - f)
+                e2 = (a**2 - b**2) / a**2
+                e_prime2 = (a**2 - b**2) / b**2
+
+                # 중부원점 파라미터 (EPSG:5186)
+                lat0 = math.radians(38.0)       # 원점 위도
+                lon0 = math.radians(127.0)      # 중부원점 경도
+                k0 = 1.0                         # 축척계수
+                x0 = 200000.0                    # 가산 X (Easting)
+                y0 = 600000.0                    # 가산 Y (Northing)
+
+                lat_rad = math.radians(lat)
+                lon_rad = math.radians(lon)
+
+                N = a / math.sqrt(1 - e2 * math.sin(lat_rad)**2)
+                T = math.tan(lat_rad)**2
+                C = e_prime2 * math.cos(lat_rad)**2
+                A = (lon_rad - lon0) * math.cos(lat_rad)
+
+                # 자오선 호장
+                e4 = e2**2
+                e6 = e2**3
+                M = a * (
+                    (1 - e2/4 - 3*e4/64 - 5*e6/256) * lat_rad
+                    - (3*e2/8 + 3*e4/32 + 45*e6/1024) * math.sin(2*lat_rad)
+                    + (15*e4/256 + 45*e6/1024) * math.sin(4*lat_rad)
+                    - (35*e6/3072) * math.sin(6*lat_rad)
+                )
+                M0 = a * (
+                    (1 - e2/4 - 3*e4/64 - 5*e6/256) * lat0
+                    - (3*e2/8 + 3*e4/32 + 45*e6/1024) * math.sin(2*lat0)
+                    + (15*e4/256 + 45*e6/1024) * math.sin(4*lat0)
+                    - (35*e6/3072) * math.sin(6*lat0)
+                )
+
+                # TM 좌표 계산
+                x = k0 * N * (
+                    A
+                    + (1 - T + C) * A**3 / 6
+                    + (5 - 18*T + T**2 + 72*C - 58*e_prime2) * A**5 / 120
+                ) + x0
+
+                y = k0 * (
+                    M - M0
+                    + N * math.tan(lat_rad) * (
+                        A**2 / 2
+                        + (5 - T + 9*C + 4*C**2) * A**4 / 24
+                        + (61 - 58*T + T**2 + 600*C - 330*e_prime2) * A**6 / 720
+                    )
+                ) + y0
+
+                return x, y
+
             # ─── LSP 파일 생성 ───
             def generate_lsp(gps_photos, method, cad_prog,
                              m_size, t_height, l_name, m_color, t_color,
@@ -742,17 +817,23 @@ if uploaded_files:
                              rb_glat=None, rb_glon=None, rb_cx=None, rb_cy=None):
                 """LSP 파일 내용 생성"""
 
+                method_names = {
+                    'A_TM': 'A: GPS -> TM jwapyo jadong byeonhwan (jungbu wonjeom)',
+                    'B': 'B: gijunjeom 2gae byeonhwan',
+                    'A_RAW': 'A-wonbon: GPS jwapyo geudaero'
+                }
+
                 lines = []
-                lines.append(f"; ─── 사진 촬영 위치 표시 LSP ───")
-                lines.append(f"; 생성일: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                lines.append(f"; CAD 프로그램: {cad_prog}")
-                lines.append(f"; 좌표 변환: {'방법 B (기준점 2개 변환)' if method == 'B' else '방법 A (GPS 좌표 그대로)'}")
-                lines.append(f"; 사진 수: {len(gps_photos)}장")
+                lines.append(f"; --- sajin chwal-yeong wichi pyosi LSP ---")
+                lines.append(f"; saengseong-il: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                lines.append(f"; CAD program: {cad_prog}")
+                lines.append(f"; jwapyo byeonhwan: {method_names.get(method, method)}")
+                lines.append(f"; sajin su: {len(gps_photos)}jang")
                 lines.append(f";")
 
                 if method == "B" and ra_glat and ra_glon and rb_glat and rb_glon:
-                    lines.append(f"; 기준점 A: GPS({ra_glat}, {ra_glon}) → CAD({ra_cx}, {ra_cy})")
-                    lines.append(f"; 기준점 B: GPS({rb_glat}, {rb_glon}) → CAD({rb_cx}, {rb_cy})")
+                    lines.append(f"; gijunjeom A: GPS({ra_glat}, {ra_glon}) -> CAD({ra_cx}, {ra_cy})")
+                    lines.append(f"; gijunjeom B: GPS({rb_glat}, {rb_glon}) -> CAD({rb_cx}, {rb_cy})")
                     lines.append(f";")
 
                 lines.append(f"(defun C:PHOTOMARK ()")
@@ -760,18 +841,20 @@ if uploaded_files:
                 lines.append(f"  (setvar \"OSMODE\" 0)")
                 lines.append(f"  (setq old_clayer (getvar \"CLAYER\"))")
                 lines.append(f"")
-                lines.append(f"  ; 레이어 생성")
+                lines.append(f"  ; layer saengseong")
                 lines.append(f"  (command \"LAYER\" \"M\" \"{l_name}\" \"C\" \"{m_color}\" \"\" \"\")")
                 lines.append(f"")
 
-                # 좌표 변환 및 포인트 생성
                 for d in gps_photos:
                     lat = d['위도']
                     lon = d['경도']
                     fname = d['파일명']
 
-                    if method == "B" and ra_glat and ra_glon and rb_glat and rb_glon:
-                        # 방법 B: 기준점 변환
+                    if method == "A_TM":
+                        # GPS -> TM 자동변환
+                        cad_x, cad_y = gps_to_tm(lat, lon)
+                    elif method == "B" and ra_glat and ra_glon and rb_glat and rb_glon:
+                        # 기준점 2개 변환
                         dlon_gps = rb_glon - ra_glon
                         dlat_gps = rb_glat - ra_glat
                         dx_cad = rb_cx - ra_cx
@@ -786,44 +869,40 @@ if uploaded_files:
                             cad_x = lon
                             cad_y = lat
                     else:
-                        # 방법 A: GPS 좌표 그대로 (경도=X, 위도=Y)
+                        # GPS 좌표 그대로
                         cad_x = lon
                         cad_y = lat
 
                     half = m_size / 2
-                    lines.append(f"  ; ── {fname} ──")
-                    lines.append(f"  ; GPS: {lat}, {lon}")
+                    lines.append(f"  ; -- {fname} --")
+                    lines.append(f"  ; GPS: {lat}, {lon} -> CAD: {cad_x:.4f}, {cad_y:.4f}")
                     lines.append(f"  (command \"LAYER\" \"S\" \"{l_name}\" \"\")")
                     lines.append(f"")
-                    # 십자 마커 (가로선)
                     lines.append(f"  (command \"LINE\"")
                     lines.append(f"    (list {cad_x - half:.4f} {cad_y:.4f})")
                     lines.append(f"    (list {cad_x + half:.4f} {cad_y:.4f})")
                     lines.append(f"    \"\")")
-                    # 십자 마커 (세로선)
                     lines.append(f"  (command \"LINE\"")
                     lines.append(f"    (list {cad_x:.4f} {cad_y - half:.4f})")
                     lines.append(f"    (list {cad_x:.4f} {cad_y + half:.4f})")
                     lines.append(f"    \"\")")
-                    # 마커 색상 변경
                     lines.append(f"  (command \"CHPROP\" (entlast) \"\" \"C\" \"{m_color}\" \"\")")
                     lines.append(f"  (command \"CHPROP\" (ssget \"P\") \"\" \"C\" \"{m_color}\" \"\")")
                     lines.append(f"")
-                    # 파일명 텍스트
                     lines.append(f"  (command \"TEXT\"")
                     lines.append(f"    (list {cad_x + half + 1:.4f} {cad_y + half * 0.5:.4f})")
                     lines.append(f"    \"{t_height}\" \"0\" \"{fname}\")")
                     lines.append(f"  (command \"CHPROP\" (entlast) \"\" \"C\" \"{t_color}\" \"\")")
                     lines.append(f"")
 
-                lines.append(f"  ; 원래 설정 복원")
+                lines.append(f"  ; wonrae seoljeong bogwon")
                 lines.append(f"  (setvar \"OSMODE\" old_osmode)")
                 lines.append(f"  (setvar \"CLAYER\" old_clayer)")
-                lines.append(f"  (princ (strcat \"\\n사진 위치 표시 완료! ({len(gps_photos)}장)\"))")
+                lines.append(f"  (princ \"\\nsajin wichi pyosi wanryo! ({len(gps_photos)}jang)\")")
                 lines.append(f"  (princ)")
                 lines.append(f")")
                 lines.append(f"")
-                lines.append(f"(princ \"\\nPHOTOMARK 명령어를 입력하세요.\")")
+                lines.append(f"(princ \"\\nPHOTOMARK myeongryeong-eo-reul ipryeokhaseyo.\")")
                 lines.append(f"(princ)")
 
                 return "\n".join(lines)
@@ -837,7 +916,13 @@ if uploaded_files:
                     can_generate = False
 
             if can_generate:
-                method = "B" if "방법 B" in coord_method else "A"
+                if "자동변환" in coord_method:
+                    method = "A_TM"
+                elif "방법 B" in coord_method:
+                    method = "B"
+                else:
+                    method = "A_RAW"
+
                 lsp_content = generate_lsp(
                     gps_data_lsp, method, cad_program,
                     marker_size, text_height, layer_name,
@@ -850,7 +935,7 @@ if uploaded_files:
                 st.markdown("<div style='height: 0.5rem'></div>", unsafe_allow_html=True)
                 st.download_button(
                     label="📐 LSP 파일 다운로드",
-                    data=lsp_content.encode('euc-kr'),
+                    data=lsp_content.encode('euc-kr', errors='replace'),
                     file_name=f"photomark_{today_lsp}.lsp",
                     mime="text/plain",
                     key="lsp_download"
