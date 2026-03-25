@@ -850,7 +850,7 @@ if uploaded_files:
                 st.markdown("<div style='height: 0.5rem'></div>", unsafe_allow_html=True)
                 st.download_button(
                     label="📐 LSP 파일 다운로드",
-                    data=lsp_content.encode('utf-8'),
+                    data=lsp_content.encode('euc-kr'),
                     file_name=f"photomark_{today_lsp}.lsp",
                     mime="text/plain",
                     key="lsp_download"
