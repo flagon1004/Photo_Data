@@ -145,11 +145,11 @@ photo-data-manager/
 | 단계 | 내용 | 상태 |
 |------|------|------|
 | 1단계 | 기획서 작성 | ✅ 완료 |
-| 2단계 | Streamlit 웹앱 코드 작성 | ⬜ 대기 |
-| 3단계 | PC에 Python + 라이브러리 설치 | ⬜ 대기 |
-| 4단계 | 로컬 테스트 (streamlit run app.py) | ⬜ 대기 |
-| 5단계 | GitHub 업로드 | ⬜ 대기 |
-| 6단계 | Streamlit Cloud 배포 → 링크 공유 | ⬜ 대기 |
+| 2단계 | Streamlit 웹앱 코드 작성 | ✅ 완료  |
+| 3단계 | PC에 Python + 라이브러리 설치 | ✅ 완료  |
+| 4단계 | 로컬 테스트 (streamlit run app.py) | ✅ 완료  |
+| 5단계 | GitHub 업로드 | ✅ 완료  |
+| 6단계 | Streamlit Cloud 배포 → 링크 공유 | ✅ 완료  |
 | 7단계 | 평면도 기능 추가 (선택) | ⬜ 향후 |
 
 ---
